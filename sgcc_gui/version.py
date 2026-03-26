@@ -1,0 +1,7 @@
+APP_NAME = "SGCCDownloader"
+PRODUCT_NAME = "SGCC 公告附件下载工具"
+APP_VERSION = "1.0.0"
+COMPANY_NAME = "CodexDemo"
+FILE_DESCRIPTION = "国网 ECP 公告附件下载桌面工具"
+INTERNAL_NAME = "sgcc_downloader_gui"
+COPYRIGHT = "Copyright (c) 2026 CodexDemo"

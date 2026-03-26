@@ -1,0 +1,1 @@
+"""SGCC Windows GUI downloader."""

@@ -1,0 +1,43 @@
+name: build-windows
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - master
+      - "codex/**"
+
+jobs:
+  package:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Create virtual environment
+        run: py -3.11 -m venv .venv
+
+      - name: Install dependencies
+        run: .\.venv\Scripts\python -m pip install -r requirements-dev.txt
+
+      - name: Build release
+        run: .\package_release.bat
+
+      - name: Upload exe artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SGCCDownloader-exe
+          path: dist/SGCCDownloader.exe
+
+      - name: Upload packaged release
+        uses: actions/upload-artifact@v4
+        with:
+          name: SGCCDownloader-release
+          path: release/
