@@ -121,7 +121,30 @@ class MainWindow(QMainWindow):
         self.selected_org_label.setWordWrap(True)
         org_layout.addWidget(self.selected_org_label)
 
+        manual_group = QGroupBox("手动补偿", panel)
+        manual_layout = QFormLayout(manual_group)
+        self.manual_org_name_input = QLineEdit(manual_group)
+        self.manual_org_name_input.setPlaceholderText("机构名称，例如：国网湖北省电力有限公司")
+        self.manual_org_id_input = QLineEdit(manual_group)
+        self.manual_org_id_input.setPlaceholderText("机构 ID，例如：2019061900100359")
+        self.manual_apply_button = QPushButton("使用手动机构", manual_group)
+        self.manual_apply_button.clicked.connect(self.apply_manual_org_selection)
+        self.manual_org_name_input.returnPressed.connect(self.apply_manual_org_selection)
+        self.manual_org_id_input.returnPressed.connect(self.apply_manual_org_selection)
+
+        manual_hint = QLabel(
+            "如果机构树或机构搜索没有数据，可以直接填写 orgName 和 orgId 继续查询。",
+            manual_group,
+        )
+        manual_hint.setWordWrap(True)
+
+        manual_layout.addRow("机构名称", self.manual_org_name_input)
+        manual_layout.addRow("机构 ID", self.manual_org_id_input)
+        manual_layout.addRow("", self.manual_apply_button)
+        manual_layout.addRow("", manual_hint)
+
         layout.addWidget(org_group)
+        layout.addWidget(manual_group)
         return panel
 
     def _build_main_panel(self) -> QWidget:
@@ -255,6 +278,8 @@ class MainWindow(QMainWindow):
             self.settings.value("download_dir", str(default_download_root()))
         )
         self.keyword_input.setText(self.settings.value("keyword", ""))
+        self.manual_org_name_input.setText(self.settings.value("manual_org_name", ""))
+        self.manual_org_id_input.setText(self.settings.value("manual_org_id", ""))
         self.page_spin.setValue(int(self.settings.value("start_page", 1)))
         self.size_spin.setValue(int(self.settings.value("page_size", 10)))
         self.max_pages_spin.setValue(int(self.settings.value("max_pages", 1)))
@@ -268,9 +293,21 @@ class MainWindow(QMainWindow):
         if window_state:
             self.restoreState(window_state)
 
+        manual_org_name = self.manual_org_name_input.text().strip()
+        manual_org_id = self.manual_org_id_input.text().strip()
+        if manual_org_name and manual_org_id:
+            self._set_selected_org(
+                OrgNode(id=manual_org_id, name=manual_org_name),
+                source_text="已恢复上次使用的手动机构",
+                log_message=False,
+                sync_manual_inputs=False,
+            )
+
     def closeEvent(self, event) -> None:  # type: ignore[override]
         self.settings.setValue("download_dir", self.download_dir_input.text().strip())
         self.settings.setValue("keyword", self.keyword_input.text().strip())
+        self.settings.setValue("manual_org_name", self.manual_org_name_input.text().strip())
+        self.settings.setValue("manual_org_id", self.manual_org_id_input.text().strip())
         self.settings.setValue("start_page", self.page_spin.value())
         self.settings.setValue("page_size", self.size_spin.value())
         self.settings.setValue("max_pages", self.max_pages_spin.value())
@@ -298,12 +335,20 @@ class MainWindow(QMainWindow):
         self.append_log("开始加载机构根节点。")
         worker = FunctionWorker(lambda: self._create_service().load_org_roots())
         worker.completed.connect(self.populate_root_nodes)
-        worker.failed.connect(self.show_error)
+        worker.failed.connect(self.on_org_root_load_failed)
         self._track_worker(worker)
         worker.start()
 
     def populate_root_nodes(self, nodes: list[OrgNode]) -> None:
         self.org_tree.clear()
+        if not nodes:
+            placeholder = QTreeWidgetItem(["机构接口未返回数据，可使用下方手动补偿"])
+            placeholder.setData(0, PLACEHOLDER_ROLE, True)
+            placeholder.setFlags(Qt.ItemIsEnabled)
+            self.org_tree.addTopLevelItem(placeholder)
+            self.append_log("机构根节点为空，请使用手动填写 orgId / orgName。")
+            self.statusBar().showMessage("机构接口没有返回机构数据，可直接手动填写机构信息")
+            return
         for node in nodes:
             self.org_tree.addTopLevelItem(self._build_org_item(node))
         self.append_log(f"机构根节点加载完成，共 {len(nodes)} 个。")
@@ -339,6 +384,14 @@ class MainWindow(QMainWindow):
 
     def populate_child_nodes(self, parent_item: QTreeWidgetItem, nodes: list[OrgNode]) -> None:
         parent_item.takeChildren()
+        if not nodes:
+            placeholder = QTreeWidgetItem(["未返回子节点，可直接手动填写机构"])
+            placeholder.setData(0, PLACEHOLDER_ROLE, True)
+            placeholder.setFlags(Qt.ItemIsEnabled)
+            parent_item.addChild(placeholder)
+            parent_item.setData(0, LOADED_ROLE, True)
+            self.append_log("机构子节点为空，可继续使用手动补偿。")
+            return
         for node in nodes:
             parent_item.addChild(self._build_org_item(node))
         parent_item.setData(0, LOADED_ROLE, True)
@@ -348,11 +401,11 @@ class MainWindow(QMainWindow):
         items = self.org_tree.selectedItems()
         if not items:
             return
+        if items[0].data(0, PLACEHOLDER_ROLE):
+            return
         node = items[0].data(0, Qt.UserRole)
         if isinstance(node, OrgNode):
-            self.selected_org = node
-            self.selected_org_label.setText(f"当前机构：{node.name} ({node.id})")
-            self.append_log(f"已选择机构：{node.name} ({node.id})")
+            self._set_selected_org(node, source_text="已选择机构")
 
     def search_orgs(self) -> None:
         keyword = self.org_search_input.text().strip()
@@ -362,12 +415,19 @@ class MainWindow(QMainWindow):
         self.append_log(f"开始搜索机构：{keyword}")
         worker = FunctionWorker(lambda: self._create_service().search_orgs(keyword))
         worker.completed.connect(self.populate_search_results)
-        worker.failed.connect(self.show_error)
+        worker.failed.connect(self.on_org_search_failed)
         self._track_worker(worker)
         worker.start()
 
     def populate_search_results(self, nodes: list[OrgNode]) -> None:
         self.org_result_list.clear()
+        if not nodes:
+            placeholder = QListWidgetItem("未找到机构，可手动填写 orgId / orgName")
+            placeholder.setFlags(Qt.NoItemFlags)
+            self.org_result_list.addItem(placeholder)
+            self.append_log("机构搜索无结果，请使用手动补偿。")
+            self.statusBar().showMessage("机构搜索无结果，可手动填写机构信息")
+            return
         for node in nodes:
             item = QListWidgetItem(f"{node.name} ({node.id})")
             item.setData(Qt.UserRole, node)
@@ -377,9 +437,60 @@ class MainWindow(QMainWindow):
     def on_org_search_item_clicked(self, item: QListWidgetItem) -> None:
         node = item.data(Qt.UserRole)
         if isinstance(node, OrgNode):
-            self.selected_org = node
-            self.selected_org_label.setText(f"当前机构：{node.name} ({node.id})")
-            self.append_log(f"已通过搜索选择机构：{node.name} ({node.id})")
+            self._set_selected_org(node, source_text="已通过搜索选择机构")
+
+    def apply_manual_org_selection(self) -> None:
+        org_name = self.manual_org_name_input.text().strip()
+        org_id = self.manual_org_id_input.text().strip()
+        if not org_name or not org_id:
+            self.show_error("请同时填写机构名称和机构 ID。")
+            return
+
+        self.org_tree.clearSelection()
+        self.org_result_list.clearSelection()
+        self._set_selected_org(
+            OrgNode(id=org_id, name=org_name, raw={"source": "manual"}),
+            source_text="已使用手动机构",
+            sync_manual_inputs=False,
+        )
+        self.statusBar().showMessage(f"当前使用手动机构：{org_name} ({org_id})")
+
+    def _set_selected_org(
+        self,
+        node: OrgNode,
+        *,
+        source_text: str,
+        log_message: bool = True,
+        sync_manual_inputs: bool = True,
+    ) -> None:
+        self.selected_org = node
+        self.selected_org_label.setText(f"当前机构：{node.name} ({node.id})")
+        if sync_manual_inputs:
+            self.manual_org_name_input.setText(node.name)
+            self.manual_org_id_input.setText(node.id)
+        if log_message:
+            self.append_log(f"{source_text}：{node.name} ({node.id})")
+
+    def _show_org_fallback_warning(self, title: str, message: str) -> None:
+        detail = f"{message}\n\n你仍然可以在左侧“手动补偿”中直接填写 orgName 和 orgId 后继续查询。"
+        self.append_log(f"{title}：{message}")
+        self.statusBar().showMessage("机构接口异常，可使用手动补偿继续查询")
+        QMessageBox.warning(self, title, detail)
+
+    def on_org_root_load_failed(self, message: str) -> None:
+        self.org_tree.clear()
+        placeholder = QTreeWidgetItem(["机构树加载失败，可使用下方手动补偿"])
+        placeholder.setData(0, PLACEHOLDER_ROLE, True)
+        placeholder.setFlags(Qt.ItemIsEnabled)
+        self.org_tree.addTopLevelItem(placeholder)
+        self._show_org_fallback_warning("机构树加载失败", message)
+
+    def on_org_search_failed(self, message: str) -> None:
+        self.org_result_list.clear()
+        placeholder = QListWidgetItem("机构搜索失败，可手动填写 orgId / orgName")
+        placeholder.setFlags(Qt.NoItemFlags)
+        self.org_result_list.addItem(placeholder)
+        self._show_org_fallback_warning("机构搜索失败", message)
 
     def choose_download_directory(self) -> None:
         current = self.download_dir_input.text().strip() or str(default_download_root())
