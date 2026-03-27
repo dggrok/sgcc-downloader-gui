@@ -9,9 +9,9 @@
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
-    "dist": "pnpm build && electron-builder",
-    "dist:win": "pnpm build && electron-builder --win nsis portable",
-    "dist:win:dir": "pnpm build && electron-builder --win dir",
+    "dist": "pnpm build && electron-builder --publish never",
+    "dist:win": "pnpm build && electron-builder --win nsis portable --publish never",
+    "dist:win:dir": "pnpm build && electron-builder --win dir --publish never",
     "preview": "electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "test": "vitest run"
