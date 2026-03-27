@@ -16,28 +16,32 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
+      - name: Setup Node
+        uses: actions/setup-node@v4
         with:
-          python-version: "3.11"
+          node-version: 20
+          cache: pnpm
 
-      - name: Create virtual environment
-        run: py -3.11 -m venv .venv
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.9
+          run_install: false
 
       - name: Install dependencies
-        run: .\.venv\Scripts\python -m pip install -r requirements-dev.txt
+        run: pnpm install --frozen-lockfile
 
-      - name: Build release
-        run: .\package_release.bat
+      - name: Typecheck
+        run: pnpm typecheck
 
-      - name: Upload exe artifact
+      - name: Test
+        run: pnpm test
+
+      - name: Build Windows distributables
+        run: pnpm dist:win
+
+      - name: Upload Windows dist
         uses: actions/upload-artifact@v4
         with:
-          name: SGCCDownloader-exe
-          path: dist/SGCCDownloader.exe
-
-      - name: Upload packaged release
-        uses: actions/upload-artifact@v4
-        with:
-          name: SGCCDownloader-release
-          path: release/
+          name: SGCCDesktop-windows
+          path: dist/

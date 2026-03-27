@@ -1,0 +1,5 @@
+export const APP_NAME = "SGCCDownloader"
+export const PRODUCT_NAME = "SGCC 公告附件下载工具"
+export const APP_VERSION = "1.0.0"
+export const COMPANY_NAME = "CodexDemo"
+export const FILE_DESCRIPTION = "国网 ECP 公告附件下载桌面工具"

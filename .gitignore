@@ -4,7 +4,11 @@ __pycache__/
 *.pyo
 *.pyd
 .pytest_cache/
-build/
+.DS_Store
+.pnpm-store/
+node_modules/
+out/
 dist/
 release/
 .pyinstaller/
+*.tsbuildinfo
